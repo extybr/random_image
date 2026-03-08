@@ -1,5 +1,6 @@
 ﻿import requests
 from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 import urllib3
 import random
 import re
@@ -9,7 +10,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 def get_all_movie_links():
     """Получаем все ссылки на фильмы с главной страницы чарта"""
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
     
     url = "https://www.imdb.com/chart/moviemeter/"
@@ -34,14 +36,29 @@ def get_all_movie_links():
         return []
 
 
+def get_page_with_playwright(url):
+    with sync_playwright() as p:
+        # Запускаем браузер (headless=False, чтобы увидеть, что происходит)
+        browser = p.chromium.launch(headless=True) 
+        context = browser.new_context(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        )
+        page = context.new_page()
+        # Переходим на страницу и ждем загрузки
+        page.goto(url, wait_until='networkidle')
+        # Получаем HTML
+        html = page.content()
+        # Закрываем браузер
+        browser.close()
+        return html
+
+
 def get_hd_poster_url(movie_url):
     """Получаем HD постер для конкретного фильма"""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    }
     try:
-        response = requests.get(movie_url, headers=headers, timeout=10, verify=False)
-        soup = BeautifulSoup(response.content, 'html.parser')
+        response = get_page_with_playwright(movie_url)
+        soup = BeautifulSoup(response, 'html.parser')
         # Ищем HD постер в мета-тегах
         meta_image = soup.find('meta', property='og:image')
         if meta_image:

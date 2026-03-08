@@ -1,92 +1,11 @@
-# for telegram bot
-
 import random
 import re
-import datetime
 import requests
 import urllib3
+import asyncio
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
-from loguru import logger
-from aiogram import Bot
-from aiogram.types import Message, FSInputFile
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-kino_image = {}
-deepfake_image = {}
-
-
-async def resource_link_availability(message: Message, bot: Bot) -> None:
-    source = {get_link_kino: 'https://kinoleha.net',
-              get_link_imdb: 'https://www.imdb.com',
-              get_link_deepfake: 'https://deepfake0001.s3.amazonaws.com'}
-    for key, value in source.items():
-        try:
-            response = requests.get(value, timeout=7).status_code
-            if response:
-                logger.info(f'Запрос к ресурсу: {value}')
-                await key(message, bot, value) 
-        except requests.exceptions.ReadTimeout:
-            logger.error(f'Timeout: {value}')
-            continue
-        except requests.exceptions.ConnectionError:
-            logger.error(f'ConnectionError: {value}')
-            continue
-        except Exception:
-            await bot.send_message(message.chat.id, 'Сервер изображений недоступен')
-
-
-async def get_link_kino(message: Message, bot: Bot, src: str) -> None:
-    """ Выводит случайные изображения / kinoleha.net """
-    global kino_image
-    server = src[8:]
-    try:
-        if not kino_image:
-            with open(file=f'{server[:-4]}.txt', mode='r', encoding='utf-8') as text:
-                items = text.readlines()
-                [items.remove(item) for item in items if not item.startswith('#')]
-                for number, line in enumerate(items):
-                    kino_image[number] = line
-        choice = random.randint(1, len(kino_image) - 1)
-        result = kino_image[choice]
-        link = result[39:]
-        for i in range(len(link) - 2):
-            if link[i] == '"' and link[i + 1] == ',':
-                link = link[:i]
-                kino_image[choice] = link
-                break
-        await bot.send_photo(message.chat.id, photo=link)
-    except Exception as error:
-        msg = f'Сервер {server} недоступен'
-        logger.error(msg)
-        await bot.send_message(message.chat.id, msg)
-        if str(error).find('Error code: 400'):
-            await bot.send_photo(message.chat.id,
-                                 photo=FSInputFile(path='img/cheburnet.jpg'))
-
-
-async def get_link_deepfake(message: Message, bot: Bot, src: str) -> None:
-    """ Выводит случайные изображения / deepfake0001.s3.amazonaws.com """
-    global deepfake_image
-    src = 'https://creators.deepfake.com'
-    server = src[8:]
-    dt = 2 ** (datetime.datetime.now().day % 2)
-    try:
-        if not deepfake_image:
-            with open(file=f'{server[:-4]}.{dt}.txt', mode='r', encoding='utf-8') as text:
-                items = text.readlines()
-                for number, line in enumerate(items):
-                    deepfake_image[number] = line
-        choice = random.randint(0, len(deepfake_image))
-        link = deepfake_image[choice]
-        await bot.send_photo(message.chat.id, photo=link)
-    except Exception as error:
-        msg = f'Сервер {server} недоступен'
-        logger.error(msg)
-        await bot.send_message(message.chat.id, msg)
-        if str(error).find('Error code: 400'):
-            await bot.send_photo(message.chat.id,
-                                 photo=FSInputFile(path='img/cheburnet.jpg'))
 
 
 async def get_all_movie_links() -> list:
@@ -117,27 +36,34 @@ async def get_all_movie_links() -> list:
 async def get_page_with_playwright(url: str) -> str | None:
     """ Получаем страницу через Playwright (асинхронная версия) """
     try:
-        async with async_playwright() as p:
+        async with async_playwright() as p:  # Используем async_playwright
             # Запускаем браузер
             browser = await p.chromium.launch(
                 headless=True,
                 args=['--disable-blink-features=AutomationControlled']
             )
+            
             # Создаем контекст
             context = await browser.new_context(
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             )
+            
             page = await context.new_page()
+            
             # Переходим на страницу
             await page.goto(url, wait_until='networkidle')
+            
             # Получаем HTML
             html = await page.content()
+            
             # Закрываем браузер
             await browser.close()
             return html
+            
     except Exception as e:
         logger.error(f'Playwright error: {e}')
         return None
+
 
 
 async def get_hd_poster_url(movie_url: str) -> str | None:
@@ -150,7 +76,8 @@ async def get_hd_poster_url(movie_url: str) -> str | None:
         response = requests.get(movie_url, headers=headers, timeout=10, verify=False)
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
-            meta_image = soup.find('meta', property='og:image') 
+            meta_image = soup.find('meta', property='og:image')
+            
             if meta_image and meta_image.get('content'):
                 image_url = meta_image['content']
                 # Конвертируем в HD
@@ -173,7 +100,7 @@ async def get_hd_poster_url(movie_url: str) -> str | None:
         return None
 
 
-async def get_link_imdb(message: Message, bot: Bot, src: str) -> None:
+async def get_link_imdb(src: str) -> None:
     """ Выводит случайные изображения / imdb.com """
     server = src[8:]
     try:
@@ -183,14 +110,14 @@ async def get_link_imdb(message: Message, bot: Bot, src: str) -> None:
             random_movie_url = list_links[random_number]
             poster_url = await get_hd_poster_url(random_movie_url)
             if poster_url:
-                await bot.send_photo(message.chat.id, photo=poster_url)
+                print(poster_url)
             else:
-                await bot.send_photo(message.chat.id, photo=FSInputFile(path='img/vodka.jpg'))
+                print('NO')
         else:
-            await bot.send_photo(message.chat.id, photo=FSInputFile(path='img/vodka.jpg'))
+            print('Nooooo')
     except Exception as error:
         msg = f'Сервер {server} недоступен'
-        logger.error(msg)
-        await bot.send_message(message.chat.id, msg)
-        if 'Error code: 400' in str(error):
-            await bot.send_photo(message.chat.id, photo=FSInputFile(path='img/vodka.jpg'))
+        print(msg)
+        
+        
+asyncio.run(get_link_imdb('https://imdb.com'))
